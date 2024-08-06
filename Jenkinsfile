@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'BRANCH_NAME', defaultValue: 'dev', description: 'Branch name for deployment')
+        choice(name: 'BRANCH_NAME', choices: ['dev', 'qa', 'acc'], description: 'Select the branch for deployment')
     }
 
     environment {
@@ -34,17 +34,20 @@ pipeline {
         stage('Deploy') {
             steps {
                 script {
-                    def branchName = params.BRANCH_NAME
                     def lambdaFunctionName
 
-                    if (branchName == 'dev') {
-                        lambdaFunctionName = env.LAMBDA_FUNCTION_NAME_DEV
-                    } else if (branchName == 'qa') {
-                        lambdaFunctionName = env.LAMBDA_FUNCTION_NAME_QA
-                    } else if (branchName == 'acc') {
-                        lambdaFunctionName = env.LAMBDA_FUNCTION_NAME_ACC
-                    } else {
-                        error "Branch ${branchName} is not recognized for deployment"
+                    switch (params.BRANCH_NAME) {
+                        case 'dev':
+                            lambdaFunctionName = env.LAMBDA_FUNCTION_NAME_DEV
+                            break
+                        case 'qa':
+                            lambdaFunctionName = env.LAMBDA_FUNCTION_NAME_QA
+                            break
+                        case 'acc':
+                            lambdaFunctionName = env.LAMBDA_FUNCTION_NAME_ACC
+                            break
+                        default:
+                            error "Branch ${params.BRANCH_NAME} is not recognized for deployment"
                     }
 
                     withAWS(credentials: 'aws-cred', region: "${env.AWS_REGION}") {
@@ -61,4 +64,3 @@ pipeline {
         }
     }
 }
-
