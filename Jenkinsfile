@@ -1,59 +1,66 @@
 pipeline {
     agent any
-    environment {
-        AWS_REGION = 'your-aws-region' // Replace with your AWS region
+
+    parameters {
+        choice(name: 'BRANCH_NAME', choices: ['dev', 'qa', 'acc'], description: 'Select the branch for deployment')
     }
+
+    environment {
+        AWS_REGION = 'us-west-2'
+        LAMBDA_FUNCTION_NAME_DEV = 'myLambdaDev'
+        LAMBDA_FUNCTION_NAME_QA = 'myLambdaQA'
+        LAMBDA_FUNCTION_NAME_ACC = 'myLambdaACC'
+        JAR_FILE = 'build/libs/jb-hello-world-0.1.0.jar'
+        S3_BUCKET = 'sachin-s3-lambda-bucket'
+    }
+
     stages {
         stage('Build') {
             steps {
-                script {
-                    // Run Gradle build
-                    sh './gradlew clean build'
-                }
+                sh './gradlew clean build'
             }
         }
-        stage('Package') {
-            steps {
-                script {
-                    // Create a deployment package (e.g., a zip file with the JAR)
-                    sh 'mkdir -p build/deploy'
-                    sh 'cp build/libs/*.jar build/deploy/function.jar'
-                    sh 'cd build/deploy && zip -r function.zip .'
-                }
-            }
-        }
-        stage('Deploy to AWS Lambda') {
-            steps {
-                script {
-                    def branchName = env.BRANCH_NAME
-                    def lambdaFunctionName
 
-                    switch (branchName) {
-                        case 'dev':
-                            lambdaFunctionName = 'your-dev-lambda-function-name'
-                            break
-                        case 'QA':
-                            lambdaFunctionName = 'your-qa-lambda-function-name'
-                            break
-                        case 'ACC':
-                            lambdaFunctionName = 'your-acc-lambda-function-name'
-                            break
-                        default:
-                            error "No Lambda function configured for branch ${branchName}"
-                    }
-
-                    // Deploy to AWS Lambda
+        stage('Upload to S3') {
+            steps {
+                withAWS(credentials: 'aws-cred', region: "${env.AWS_REGION}") {
                     sh """
-                        aws lambda update-function-code --function-name ${lambdaFunctionName} --zip-file fileb://build/deploy/function.zip --region ${AWS_REGION}
+                    aws s3 cp ${env.WORKSPACE}/${env.JAR_FILE} s3://${env.S3_BUCKET}/${env.JAR_FILE}
                     """
                 }
             }
         }
-    }
-    post {
-        always {
-            cleanWs()
+
+        stage('Deploy') {
+            steps {
+                script {
+                    def lambdaFunctionName
+
+                    switch (params.BRANCH_NAME) {
+                        case 'dev':
+                            lambdaFunctionName = env.LAMBDA_FUNCTION_NAME_DEV
+                            break
+                        case 'qa':
+                            lambdaFunctionName = env.LAMBDA_FUNCTION_NAME_QA
+                            break
+                        case 'acc':
+                            lambdaFunctionName = env.LAMBDA_FUNCTION_NAME_ACC
+                            break
+                        default:
+                            error "Branch ${params.BRANCH_NAME} is not recognized for deployment"
+                    }
+
+                    withAWS(credentials: 'aws-cred', region: "${env.AWS_REGION}") {
+                        sh """
+                        aws lambda update-function-code \
+                            --region ${env.AWS_REGION} \
+                            --function-name ${lambdaFunctionName} \
+                            --s3-bucket ${env.S3_BUCKET} \
+                            --s3-key ${env.JAR_FILE}
+                        """
+                    }
+                }
+            }
         }
     }
 }
-
